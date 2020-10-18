@@ -40,21 +40,26 @@ parser.add_argument('--NUM_CLASSES','-c', type=int, default=1000, required=False
 parser.add_argument('--NUM_GPU','-g', type=int, default=1, required=False, help='Num of gpus')
 parser.add_argument('--folder','-f', type=str, default='result', required=False, help='folder to save results')
 args = parser.parse_args()
+
 args.BATCH_SIZE*=args.NUM_GPU
+
+
 class RandomDataset(Dataset):
 
     def __init__(self,  length):
         self.len = length
-        self.data = torch.zeros( 3, 224, 224,length)
+        self.data = torch.randn(length, 3, 224, 224, dtype=torch.float32)
 
     def __getitem__(self, index):
-        return self.data[:,:,:,index]
+        return self.data[index]
 
     def __len__(self):
         return self.len
 
-rand_loader = DataLoader(dataset=RandomDataset( args.BATCH_SIZE*(args.WARM_UP + args.NUM_TEST)),
-                         batch_size=args.BATCH_SIZE, shuffle=False,num_workers=8)
+repeats = args.BATCH_SIZE*(args.WARM_UP + args.NUM_TEST)
+rand_loader = DataLoader(dataset=RandomDataset(repeats), 
+    batch_size=args.BATCH_SIZE, shuffle=False,num_workers=8)
+
 def train():
     """use fake image for training speed test"""
     target = torch.LongTensor(args.BATCH_SIZE).random_(args.NUM_CLASSES).cuda()
@@ -70,17 +75,20 @@ def train():
             durations = []
             print('Benchmarking Training {} '.format(model_name))
 
+            img = torch.zeros(args.BATCH_SIZE, 3, 224, 224, dtype=torch.float32)
             with autocast():
 
-                for step,img in enumerate(rand_loader):
+                # for step, img in enumerate(rand_loader):
+                for step in range(repeats):    
 
                     torch.cuda.synchronize()
                     start = time.time()
                     model.zero_grad()
-                    prediction = model(img.to('cuda'))
+                    prediction = model(img)
                     loss = criterion(prediction, target)
                     loss.backward()
                     torch.cuda.synchronize()
+
                     end = time.time()
                     if step >= args.WARM_UP:
                         durations.append((end - start))

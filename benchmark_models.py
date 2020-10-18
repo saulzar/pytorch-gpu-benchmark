@@ -85,7 +85,7 @@ def train():
                     if step >= args.WARM_UP:
                         durations.append((end - start))
 
-                rate = args.BATCH_SIZE * args.NUM_GPU / (sum(durations)/len(durations))        
+                rate = args.BATCH_SIZE  / (sum(durations)/len(durations))        
                 print(model_name,' model average train time : ',  rate, 'images/sec')
                 del model
                 benchmark[model_name] = durations
@@ -130,7 +130,7 @@ def inference():
                         if step >= args.WARM_UP:
                             durations.append((end - start))
 
-                    rate = args.BATCH_SIZE * args.NUM_GPU/ (sum(durations)/len(durations))        
+                    rate = args.BATCH_SIZE  / (sum(durations)/len(durations))        
                     print(model_name,' model average inference time : ',  rate, 'images/sec')
                     del model
                     benchmark[model_name] = durations
@@ -157,6 +157,7 @@ if __name__ == '__main__':
     for idx,value in enumerate(zip(temp,gpu_configs)):
         gpu_configs[idx]=''.join(value)
         print(gpu_configs[idx])
+
     print(system_configs)
 
     with open(os.path.join(folder_name,"system_info.txt"), "w") as f:

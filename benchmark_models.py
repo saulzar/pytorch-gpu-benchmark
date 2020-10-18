@@ -45,7 +45,7 @@ class RandomDataset(Dataset):
 
     def __init__(self,  length):
         self.len = length
-        self.data = torch.randn( 3, 224, 224,length)
+        self.data = torch.zeros( 3, 224, 224,length)
 
     def __getitem__(self, index):
         return self.data[:,:,:,index]

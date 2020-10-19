@@ -4,7 +4,10 @@ import torchvision.models as models
 import platform,psutil
 import torch.nn as nn
 import time,os
-import pandas as pd
+from os import path
+
+import json
+
 import argparse
 from torch.utils.data import Dataset, DataLoader
 
@@ -143,11 +146,17 @@ def benchmark_models(name, task, precision="auto"):
 
             benchmark[model_name] = rate
 
-    total = torch.tensor(benchmark.values())
-    print("geometric mean total ({}, precision={}): {%.4f}".format(name, precision, gmean(total)))
+    total = torch.tensor(list(benchmark.values()), dtype=torch.float32)
+    mean = gmean(total)
 
-    return benchmark
+    print("------------------------------------------------")
+    print("geometric mean ({}, precision={}): {%.4f}".format(name, precision, mean))
 
+    benchmark['gmean'] = mean
+
+    filename = path.join(args.folder, "{}_{}.json".format(name, precision))
+    with open(filename, 'w') as outfile:
+        json.dump(benchmark, outfile)
 
 
 class no_op():
@@ -187,8 +196,8 @@ if __name__ == '__main__':
         f.writelines(s + '\n' for s in gpu_configs )
 
         for precision in precisions:
-            train_result=benchmark_models("train", train, precision)
-            test_result=benchmark_models("test", test, precision)
+            benchmark_models("train", train, precision)
+            benchmark_models("test", test, precision)
 
 
     now = time.localtime()

@@ -113,7 +113,7 @@ def gmean(input_x, dim=0):
     log_x = torch.log(input_x)
     return torch.exp(torch.mean(log_x, dim=dim))
 
-def benchmark_models(name, task, precision="auto"):
+def benchmark_models(name, task, precision="auto", output="results"):
 
     batch_scale = dict(auto = 2, half = 2, float = 1)
     batch_size = args.BATCH_SIZE * args.NUM_GPU * batch_scale[precision]  
@@ -150,11 +150,11 @@ def benchmark_models(name, task, precision="auto"):
     mean = gmean(total)
 
     print("------------------------------------------------")
-    print("geometric mean ({}, precision={}): {%.4f}".format(name, precision, mean))
+    print("geometric mean ({}, precision={}): {:.4f}".format(name, precision, mean))
 
-    benchmark['gmean'] = mean
+    benchmark['gmean'] = mean.item()
 
-    filename = path.join(args.folder, "{}_{}.json".format(name, precision))
+    filename = path.join(output, "{}_{}.json".format(name, precision))
     with open(filename, 'w') as outfile:
         json.dump(benchmark, outfile)
 
@@ -168,7 +168,8 @@ class no_op():
 
 
 if __name__ == '__main__':
-    folder_name=args.folder
+    folder_name= "{}_batch{}_gpus{}".format(args.folder, args.BATCH_SIZE, args.NUM_GPU)
+
     device_name="".join((device_name, '_',str(args.NUM_GPU),'_gpus_'))
     system_configs=str(platform.uname())
     system_configs='\n'.join((system_configs,str(psutil.cpu_freq()),'cpu_count: '+str(psutil.cpu_count()),'memory_available: '+str(psutil.virtual_memory().available)))
@@ -196,8 +197,8 @@ if __name__ == '__main__':
         f.writelines(s + '\n' for s in gpu_configs )
 
         for precision in precisions:
-            benchmark_models("train", train, precision)
-            benchmark_models("test", test, precision)
+            benchmark_models("train", train, precision, folder_name)
+            benchmark_models("test", test, precision, folder_name)
 
 
     now = time.localtime()

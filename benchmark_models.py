@@ -113,16 +113,16 @@ def gmean(input_x, dim=0):
     log_x = torch.log(input_x)
     return torch.exp(torch.mean(log_x, dim=dim))
 
+batch_size = args.BATCH_SIZE * args.NUM_GPU  
+
+rand_loader = DataLoader(dataset=RandomDataset(batch_size * args.NUM_TEST), 
+    batch_size=batch_size, shuffle=False,num_workers=0)
+
+warmup_loader = DataLoader(dataset=RandomDataset(batch_size * args.WARM_UP), 
+    batch_size=batch_size, shuffle=False,num_workers=0)
+
+
 def benchmark_models(name, task, precision="auto", output="results"):
-
-    batch_scale = dict(auto = 2, half = 2, float = 1)
-    batch_size = args.BATCH_SIZE * args.NUM_GPU * batch_scale[precision]  
-
-    rand_loader = DataLoader(dataset=RandomDataset(batch_size * args.NUM_TEST), 
-        batch_size=batch_size, shuffle=False,num_workers=0)
-    
-    warmup_loader = DataLoader(dataset=RandomDataset(batch_size * args.WARM_UP), 
-        batch_size=batch_size, shuffle=False,num_workers=0)
 
     benchmark = {}
     for model_type in MODEL_LIST.keys():

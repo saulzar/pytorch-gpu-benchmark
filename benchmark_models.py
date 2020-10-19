@@ -196,9 +196,9 @@ if __name__ == '__main__':
         f.writelines('\ngpu_configs\n\n')
         f.writelines(s + '\n' for s in gpu_configs )
 
-        for precision in precisions:
-            benchmark_models("train", train, precision, folder_name)
-            benchmark_models("test", test, precision, folder_name)
+    for precision in precisions:
+        benchmark_models("train", train, precision, folder_name)
+        benchmark_models("test", test, precision, folder_name)
 
 
     now = time.localtime()

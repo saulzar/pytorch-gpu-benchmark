@@ -8,6 +8,8 @@ import pandas as pd
 import argparse
 from torch.utils.data import Dataset, DataLoader
 
+from tqdm import tqdm
+
 from torch.cuda.amp import autocast
 
 torch.backends.cudnn.benchmark = True
@@ -27,15 +29,16 @@ MODEL_LIST = {
     # models.shufflenetv2:models.shufflenetv2.__all__[1:]
 }
 
-precisions=["amp", "float","half"]
+precisions=["auto", "float", "half"]
+
 # For post-voltaic architectures, there is a possibility to use tensor-core at half precision.
 # Due to the gradient overflow problem, apex is recommended for practical use.
 device_name=str(torch.cuda.get_device_name(0))
 # Training settings
 parser = argparse.ArgumentParser(description='PyTorch Benchmarking')
-parser.add_argument('--WARM_UP','-w', type=int,default=5, required=False, help="Num of warm up")
+parser.add_argument('--WARM_UP','-w', type=int,default=4, required=False, help="Num of warm up")
 parser.add_argument('--NUM_TEST','-n', type=int,default=50,required=False, help="Num of Test")
-parser.add_argument('--BATCH_SIZE','-b', type=int, default=32, required=False, help='Num of batch size')
+parser.add_argument('--BATCH_SIZE','-b', type=int, default=16, required=False, help='Num of batch size')
 parser.add_argument('--NUM_CLASSES','-c', type=int, default=1000, required=False, help='Num of class')
 parser.add_argument('--NUM_GPU','-g', type=int, default=1, required=False, help='Num of gpus')
 parser.add_argument('--folder','-f', type=str, default='result', required=False, help='folder to save results')
@@ -48,7 +51,7 @@ class RandomDataset(Dataset):
 
     def __init__(self,  length):
         self.len = length
-        self.data = torch.randn(length, 3, 224, 224, dtype=torch.float32)
+        self.data = torch.randn(length, 3, 224, 224, dtype=torch.float16)
 
     def __getitem__(self, index):
         return self.data[index]
@@ -56,11 +59,37 @@ class RandomDataset(Dataset):
     def __len__(self):
         return self.len
 
-repeats = args.BATCH_SIZE*(args.WARM_UP + args.NUM_TEST)
+class Autocast(nn.Module):
+    def __init__(self, model):
+        super().__init__()
+        self.m = model
+
+    @autocast()
+    def forward(self, input):
+        return self.m.forward(input)
+
+
+num_batches = (args.WARM_UP + args.NUM_TEST)
+repeats = args.BATCH_SIZE * num_batches
+
 rand_loader = DataLoader(dataset=RandomDataset(repeats), 
     batch_size=args.BATCH_SIZE, shuffle=False,num_workers=8)
 
-def train():
+def prepare_model(model, precision):
+
+    types = dict(auto = torch.float16, float = torch.float32, half = torch.float16)
+    input_type = types[precision]
+    if precision == "auto":
+        model = Autocast(model)
+    else:
+        model = model.to(input_type)
+
+    model = nn.DataParallel(model, device_ids=range(args.NUM_GPU))
+    model = model.to('cuda')
+
+    return model, input_type
+
+def train(precision="auto"):
     """use fake image for training speed test"""
     target = torch.LongTensor(args.BATCH_SIZE).random_(args.NUM_CLASSES).cuda()
     criterion = nn.CrossEntropyLoss()
@@ -68,35 +97,32 @@ def train():
     for model_type in MODEL_LIST.keys():
         for model_name in MODEL_LIST[model_type]:
             model = getattr(model_type, model_name)(pretrained=False)
-            if args.NUM_GPU > 1:
-                model = nn.DataParallel(model,device_ids=range(args.NUM_GPU))
+            model, input_type = prepare_model(model, precision)
 
-            model=model.to('cuda')
+            model.train()
+
             durations = []
             print('Benchmarking Training {} '.format(model_name))
 
-            img = torch.zeros(args.BATCH_SIZE, 3, 224, 224, dtype=torch.float32)
-            with autocast():
+            for step, img in enumerate(tqdm(rand_loader)):
+                img = img.to(input_type).cuda()
 
-                # for step, img in enumerate(rand_loader):
-                for step in range(repeats):    
+                torch.cuda.synchronize()
+                start = time.time()
+                model.zero_grad()
+                prediction = model(img)
+                loss = criterion(prediction, target)
+                loss.backward()
+                torch.cuda.synchronize()
 
-                    torch.cuda.synchronize()
-                    start = time.time()
-                    model.zero_grad()
-                    prediction = model(img)
-                    loss = criterion(prediction, target)
-                    loss.backward()
-                    torch.cuda.synchronize()
+                end = time.time()
+                if step >= args.WARM_UP:
+                    durations.append((end - start))
 
-                    end = time.time()
-                    if step >= args.WARM_UP:
-                        durations.append((end - start))
-
-                rate = args.BATCH_SIZE  / (sum(durations)/len(durations))        
-                print(model_name,' model average train time : ',  rate, 'images/sec')
-                del model
-                benchmark[model_name] = durations
+            rate = args.BATCH_SIZE  / (sum(durations)/len(durations))        
+            print(model_name,' model average train time : ',  rate, 'images/sec')
+            del model
+            benchmark[model_name] = durations
 
     return benchmark
 
@@ -108,30 +134,26 @@ class no_op():
         return False
 
 
-def inference():
+def inference(precision="auto"):
     benchmark = {}
     with torch.no_grad():
         for model_type in MODEL_LIST.keys():
             for model_name in MODEL_LIST[model_type]:
                 model = getattr(model_type, model_name)(pretrained=False)
-                if args.NUM_GPU > 1:
-                    model = nn.DataParallel(model,device_ids=range(args.NUM_GPU))
+                model, input_type = prepare_model(model, precision)
 
-                model=model.to('cuda')
                 model.eval()
-
-                loss_fn = torch.nn.MSELoss(reduction='sum')
-                target = torch.randn(args.BATCH_SIZE, 1000)
 
                 print('Benchmarking Inference {} '.format(model_name))
                 durations = []
 
                 with autocast():
-                    for step,img in enumerate(rand_loader):
+                    for step,img in enumerate(tqdm(rand_loader)):
+                        img = img.to(input_type).cuda()
                         
                         torch.cuda.synchronize()
                         start = time.time()
-                        result = model(img.to('cuda')).sum()
+                        model(img)
 
                         torch.cuda.synchronize()
                         end = time.time()
@@ -175,15 +197,16 @@ if __name__ == '__main__':
         f.writelines('\ngpu_configs\n\n')
         f.writelines(s + '\n' for s in gpu_configs )
 
-        train_result=train()
-        train_result_df = pd.DataFrame(train_result)
-        path=''.join((folder_name,'/',device_name, '_model_train_benchmark.csv'))
-        train_result_df.to_csv(path, index=False)
+        for precision in precisions:
+            train_result=train(precision)
+            train_result_df = pd.DataFrame(train_result)
+            path=''.join((folder_name,'/',device_name, '_', precision, '_model_train_benchmark.csv'))
+            train_result_df.to_csv(path, index=False)
 
-        inference_result=inference()
-        inference_result_df = pd.DataFrame(inference_result)
-        path=''.join((folder_name,'/',device_name, '_model_inference_benchmark.csv'))
-        inference_result_df.to_csv(path, index=False)
+            inference_result=inference(precision)
+            inference_result_df = pd.DataFrame(inference_result)
+            path=''.join((folder_name,'/',device_name, '_', precision, '_model_inference_benchmark.csv'))
+            inference_result_df.to_csv(path, index=False)
 
     now = time.localtime()
     end_time=str("%04d/%02d/%02d %02d:%02d:%02d" % (now.tm_year, now.tm_mon, now.tm_mday, now.tm_hour, now.tm_min, now.tm_sec))

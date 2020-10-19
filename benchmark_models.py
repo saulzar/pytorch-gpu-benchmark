@@ -88,10 +88,11 @@ def prepare_model(model, precision):
     return model, input_type
 
 def train(model, input_type, loader):
-    target = torch.LongTensor(args.BATCH_SIZE).random_(args.NUM_CLASSES).cuda()
+    target = torch.LongTensor(loader.batch_size).random_(args.NUM_CLASSES).cuda()
     criterion = nn.CrossEntropyLoss()
 
     model.train()
+
     for step, img in enumerate(loader):
         img = img.to(input_type)
 
@@ -105,16 +106,20 @@ def test(model, input_type, loader):
     for step, img in enumerate(loader):
         model(img.to(input_type))
 
+def gmean(input_x, dim=0):
+    log_x = torch.log(input_x)
+    return torch.exp(torch.mean(log_x, dim=dim))
+
 def benchmark_models(name, task, precision="auto"):
 
-    batch_scale = dict(auto = 2, float = 1, half = 2)
+    batch_scale = dict(auto = 2, half = 2, float = 1)
     batch_size = args.BATCH_SIZE * args.NUM_GPU * batch_scale[precision]  
 
-    rand_loader = DataLoader(dataset=RandomDataset(args.BATCH_SIZE * args.NUM_TEST), 
-        batch_size=args.BATCH_SIZE, shuffle=False,num_workers=8)
+    rand_loader = DataLoader(dataset=RandomDataset(batch_size * args.NUM_TEST), 
+        batch_size=batch_size, shuffle=False,num_workers=0)
     
-    warmup_loader = DataLoader(dataset=RandomDataset(args.BATCH_SIZE * args.WARM_UP), 
-        batch_size=args.BATCH_SIZE, shuffle=False,num_workers=8)
+    warmup_loader = DataLoader(dataset=RandomDataset(batch_size * args.WARM_UP), 
+        batch_size=batch_size, shuffle=False,num_workers=0)
 
     benchmark = {}
     for model_type in MODEL_LIST.keys():
@@ -132,11 +137,14 @@ def benchmark_models(name, task, precision="auto"):
             torch.cuda.synchronize()
             end = time.time()
 
-            rate = len(rand_loader) * args.BATCH_SIZE  / (end - start)
+            rate = len(rand_loader) * batch_size  / (end - start)
             print(model_name, precision,  rate, 'images/sec')
             del model
 
             benchmark[model_name] = rate
+
+    total = torch.tensor(benchmark.values())
+    print("geometric mean total ({}, precision={}): {%.4f}".format(name, precision, gmean(total)))
 
     return benchmark
 

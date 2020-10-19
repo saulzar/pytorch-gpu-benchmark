@@ -20,9 +20,9 @@ torch.backends.cudnn.benchmark = True
 
 MODEL_LIST = {
 
-    models.mnasnet:models.mnasnet.__all__[1:],
-    # models.resnet: models.resnet.__all__[1:],
-    # # models.densenet: models.densenet.__all__[1:],
+    # models.mnasnet:models.mnasnet.__all__[1:],
+    models.resnet: models.resnet.__all__[1:],
+    # models.densenet: models.densenet.__all__[1:],
     # models.squeezenet: models.squeezenet.__all__[1:],
     # models.vgg: models.vgg.__all__[1:],
     # models.mobilenet:models.mobilenet.__all__[1:],
@@ -38,7 +38,7 @@ device_name=str(torch.cuda.get_device_name(0))
 parser = argparse.ArgumentParser(description='PyTorch Benchmarking')
 parser.add_argument('--WARM_UP','-w', type=int,default=4, required=False, help="Num of warm up")
 parser.add_argument('--NUM_TEST','-n', type=int,default=50,required=False, help="Num of Test")
-parser.add_argument('--BATCH_SIZE','-b', type=int, default=16, required=False, help='Num of batch size')
+parser.add_argument('--BATCH_SIZE','-b', type=int, default=32, required=False, help='Num of batch size')
 parser.add_argument('--NUM_CLASSES','-c', type=int, default=1000, required=False, help='Num of class')
 parser.add_argument('--NUM_GPU','-g', type=int, default=1, required=False, help='Num of gpus')
 parser.add_argument('--folder','-f', type=str, default='result', required=False, help='folder to save results')
@@ -92,7 +92,7 @@ def train(model, input_type, loader):
     criterion = nn.CrossEntropyLoss()
 
     model.train()
-    for step, img in enumerate(tqdm(loader)):
+    for step, img in enumerate(loader):
         img = img.to(input_type)
 
         model.zero_grad()
@@ -102,7 +102,7 @@ def train(model, input_type, loader):
 
 def test(model, input_type, loader):
     model.eval()
-    for step, img in enumerate(tqdm(loader)):
+    for step, img in enumerate(loader):
         model(img.to(input_type))
 
 def benchmark_models(name, task, precision="auto"):
@@ -122,12 +122,8 @@ def benchmark_models(name, task, precision="auto"):
             model = getattr(model_type, model_name)(pretrained=False)
             model, input_type = prepare_model(model, precision)
 
-            print('Benchmarking {} {} {} '.format(name, model_name, precision))
-            print('Warmup {} {} {} '.format(name, model_name, precision))
-
             task(model, input_type, warmup_loader)
 
-            print('Benchmark {} {} {} '.format(name, model_name, precision))
             torch.cuda.synchronize()
             start = time.time()
 
@@ -137,7 +133,7 @@ def benchmark_models(name, task, precision="auto"):
             end = time.time()
 
             rate = len(rand_loader) * args.BATCH_SIZE  / (end - start)
-            print(model_name,'rate',  rate, 'images/sec')
+            print(model_name, precision,  rate, 'images/sec')
             del model
 
             benchmark[model_name] = rate

@@ -20,9 +20,9 @@ torch.backends.cudnn.benchmark = True
 
 MODEL_LIST = {
 
-    # models.mnasnet:models.mnasnet.__all__[1:],
-    models.resnet: models.resnet.__all__[1:],
-    # models.densenet: models.densenet.__all__[1:],
+    models.mnasnet:models.mnasnet.__all__[1:],
+    # models.resnet: models.resnet.__all__[1:],
+    # # models.densenet: models.densenet.__all__[1:],
     # models.squeezenet: models.squeezenet.__all__[1:],
     # models.vgg: models.vgg.__all__[1:],
     # models.mobilenet:models.mobilenet.__all__[1:],
@@ -44,7 +44,7 @@ parser.add_argument('--NUM_GPU','-g', type=int, default=1, required=False, help=
 parser.add_argument('--folder','-f', type=str, default='result', required=False, help='folder to save results')
 args = parser.parse_args()
 
-args.BATCH_SIZE*=args.NUM_GPU
+
 
 
 class RandomDataset(Dataset):
@@ -70,11 +70,7 @@ class Autocast(nn.Module):
 
 
 
-rand_loader = DataLoader(dataset=RandomDataset(args.BATCH_SIZE * args.NUM_TEST), 
-    batch_size=args.BATCH_SIZE, shuffle=False,num_workers=8)
-    
-warmup_loader = DataLoader(dataset=RandomDataset(args.BATCH_SIZE * args.WARM_UP), 
-    batch_size=args.BATCH_SIZE, shuffle=False,num_workers=8)
+
         
 
 def prepare_model(model, precision):
@@ -110,6 +106,16 @@ def test(model, input_type, loader):
         model(img.to(input_type))
 
 def benchmark_models(name, task, precision="auto"):
+
+    batch_scale = dict(auto = 2, float = 1, half = 2)
+    batch_size = args.BATCH_SIZE * args.NUM_GPU * batch_scale[precision]  
+
+    rand_loader = DataLoader(dataset=RandomDataset(args.BATCH_SIZE * args.NUM_TEST), 
+        batch_size=args.BATCH_SIZE, shuffle=False,num_workers=8)
+    
+    warmup_loader = DataLoader(dataset=RandomDataset(args.BATCH_SIZE * args.WARM_UP), 
+        batch_size=args.BATCH_SIZE, shuffle=False,num_workers=8)
+
     benchmark = {}
     for model_type in MODEL_LIST.keys():
         for model_name in MODEL_LIST[model_type]:
@@ -131,7 +137,7 @@ def benchmark_models(name, task, precision="auto"):
             end = time.time()
 
             rate = len(rand_loader) * args.BATCH_SIZE  / (end - start)
-            print(model_name,' model average train rate',  rate, 'images/sec')
+            print(model_name,'rate',  rate, 'images/sec')
             del model
 
             benchmark[model_name] = rate
